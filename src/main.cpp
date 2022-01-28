@@ -12,6 +12,7 @@
 #include "lorakeys.h"
 
 #define GapValue 2208
+#define TransmissionTime 135 //Data will be transferred every 135s
 
 static long Weight_Maopi[4];
 HX711 scale;
@@ -21,7 +22,7 @@ void do_send();
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
-constexpr OsDeltaTime TX_INTERVAL = OsDeltaTime::from_sec(135);
+constexpr OsDeltaTime TX_INTERVAL = OsDeltaTime::from_sec(TransmissionTime);
 
 constexpr unsigned int BAUDRATE = 115200;
 // Pin mapping
@@ -68,6 +69,9 @@ RadioSx1262 radio{lmic_pins, ImageCalibrationBand::band_863_870};
 LmicEu868 LMIC{radio};
 OsTime nextSend;
 
+// buffer to save current lmic state (size may be reduce)
+RTC_DATA_ATTR uint8_t saveState[301];
+
 void onEvent(EventType ev) {
   switch (ev) {
   case EventType::JOINING:
@@ -82,7 +86,7 @@ void onEvent(EventType ev) {
   case EventType::JOIN_FAILED:
     PRINT_DEBUG(2, F("EV_JOIN_FAILED"));
     break;
-  case EventType::TXCOMPLETE:
+  case EventType::TXCOMPLETE: {
     PRINT_DEBUG(2, F("EV_TXCOMPLETE (includes waiting for RX windows)"));
     if (LMIC.getTxRxFlags().test(TxRxStatus::ACK)) {
       PRINT_DEBUG(1, F("Received ack"));
@@ -94,7 +98,15 @@ void onEvent(EventType ev) {
         uint8_t port = LMIC.getPort();
       }
     }
+    // we have transmit
+    // save before going to deep sleep.
+    auto store = StoringBuffer{saveState};
+    LMIC.saveState(store);
+    saveState[300] = 51;
+    PRINT_DEBUG(1, F("State save len = %i"), store.length());
+    ESP.deepSleep(TX_INTERVAL.to_us());
     break;
+  }
   case EventType::RESET:
     PRINT_DEBUG(2, F("EV_RESET"));
     break;
@@ -117,8 +129,7 @@ void do_send() {
 
   float Weight[4];
   float TotalWeight;
-  static uint8_t count;
-  char str[25];
+  static uint8_t count;  
   TotalWeight = 0;
   count = 0;
   while (count < 4)
@@ -158,7 +169,14 @@ void setup() {
 
   // set clock error to allow good connection.
   LMIC.setClockError(MAX_CLOCK_ERROR * 3 / 100);
-  LMIC.setAntennaPowerAdjustment(-14);
+  // LMIC.setAntennaPowerAdjustment(-14);
+
+  if (saveState[300] == 51) {
+    auto retrieve = RetrieveBuffer{saveState};
+    LMIC.loadState(retrieve);
+    // PRINT_DEBUG(1, F("State load len = %i"), lbuf);
+    saveState[300] = 0;
+  }
 
   CalibrationFunction(); //HX711 calibration
 
