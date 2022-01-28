@@ -31,3 +31,5 @@ constexpr char const appKey[] = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
 In ``main.cpp`` replace the content of ``do_send()`` with the data you want to send.
 
 Check the pin configuration for your board in ``lmic_pins`` structure.
+
+Hardware used is https://github.com/Xinyuan-LilyGO/T-Weigh

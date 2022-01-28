@@ -5,10 +5,17 @@
 #include <hal/print_debug.h>
 #include <keyhandler.h>
 #include <lmic.h>
+#include "HX711.h"
 
 #define DEVICE_TESTESP32
 #define DEVICE_SIMPLE_SX1262
 #include "lorakeys.h"
+
+#define GapValue 2208
+
+static long Weight_Maopi[4];
+HX711 scale;
+const char channel[4] = {0x0F, 0X0B, 0X09, 0X0D};
 
 void do_send();
 
@@ -26,6 +33,34 @@ constexpr lmic_pinmap lmic_pins = {
      .dio = {BUSY,DIO1,}
 };
 
+void SelectChannel(uint8_t ch)
+{
+  pinMode(CDA, OUTPUT);
+  pinMode(CDB, OUTPUT);
+  pinMode(CDC, OUTPUT);
+  pinMode(CDD, OUTPUT);
+
+  digitalWrite(CDA, channel[ch] & 0x08);
+  digitalWrite(CDB, channel[ch] & 0x04);
+  digitalWrite(CDC, channel[ch] & 0x02);
+  digitalWrite(CDD, channel[ch] & 0x01);
+}
+
+void CalibrationFunction(void)
+{
+  uint8_t count = 0;
+  while (count < 4)
+  {
+    do
+    {
+      SelectChannel(count);
+      scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+      Weight_Maopi[count] = scale.read();
+    } while (scale.is_ready());
+    delay(200);
+    count++;
+  }
+}
 
 // Radio class for SX1262
 RadioSx1262 radio{lmic_pins, ImageCalibrationBand::band_863_870};
@@ -79,6 +114,27 @@ void do_send() {
   // Some analog value
   // val = analogRead(A1) >> 4;
   uint8_t val = 4; //temperatureRead();
+
+  float Weight[4];
+  float TotalWeight;
+  static uint8_t count;
+  char str[25];
+  TotalWeight = 0;
+  count = 0;
+  while (count < 4)
+  {
+    SelectChannel(count);
+    if (scale.is_ready())
+    {
+      long reading = scale.read();
+      reading = reading - Weight_Maopi[count];
+      Weight[count] = (long)((float)reading / GapValue);      
+      Serial.printf("[%d] Weight : %0.3fkg\r\n", count, float(Weight[count] / 1000), 3); 
+      TotalWeight += Weight[count];
+      count++;
+    }
+  }
+  val = TotalWeight;
   // Prepare upstream data transmission at the next possible time.
   LMIC.setTxData2(2, &val, 1, false);
   PRINT_DEBUG(1, F("Packet queued"));
@@ -104,12 +160,13 @@ void setup() {
   LMIC.setClockError(MAX_CLOCK_ERROR * 3 / 100);
   LMIC.setAntennaPowerAdjustment(-14);
 
+  CalibrationFunction(); //HX711 calibration
+
   // Start job (sending automatically starts OTAA too)
   nextSend = os_getTime();
 }
 
-void loop() {
-
+void loop() { 
   OsDeltaTime freeTimeBeforeNextCall = LMIC.run();
 
   if (freeTimeBeforeNextCall > OsDeltaTime::from_ms(10)) {
