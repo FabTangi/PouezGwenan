@@ -2,6 +2,14 @@
 
 This is a simple exemple for ESP32 with arduino framework.
 
+Details here : https://wiki.fablab-lannion.org/index.php?title=T-Weigh
+
+Based on code from : 
+
+https://github.com/Xinyuan-LilyGO/T-Weigh
+
+https://github.com/ngraziano/LMICPP-Arduino
+
 ## Specific to ESP32
 
 It use hardware AES for encoding.
